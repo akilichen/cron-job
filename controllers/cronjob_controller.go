@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	batchv1 "cron-job/api/v1"
-	"github.com/prometheus/common/log"
 	kbatch "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,16 +60,17 @@ var (
 
 func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
-	_ = r.Log.WithValues("cronjob", req.NamespacedName)
+	log := r.Log.WithValues("cronjob", req.NamespacedName)
 
 	// your logic here
 
 	// 根据名称加载定时任务
-	// 忽略掉 not-found 错误，它们不能通过重新排队修复（要等待新的通知）
-	// 在删除一个不存在的对象时，可能会报这个错误。
 	var cronJob batchv1.CronJob
 	if err := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
 		log.Error(err, "unable to fetch CronJob")
+		//忽略掉 not-found 错误，它们不能通过重新排队修复（要等待新的通知）
+		//在删除一个不存在的对象时，可能会报这个错误。
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// 获取所有有效的job，并使用client.MatchingFields给查询到的数据加上索引
@@ -150,12 +150,19 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 		cronJob.Status.Active = append(cronJob.Status.Active, *jobRef)
 	}
-	//log.V(1).Info("job count", "active jobs", len(activeJobs), "successful jobs", len(successfulJobs), "failed jobs", len(failedJobs))
 
+	// 记录我们观察到的 job 数量。为便于调试，略微提高日志级别
+	log.V(1).Info("job count", "active jobs", len(activeJobs), "successful jobs", len(successfulJobs), "failed jobs", len(failedJobs))
+
+	// 使用收集到日期信息来更新 CRD 状态。和之前类似，通过 client 来完成操作。 针对 status 这一子资源，我们可以使用Status部分的Update方法。
+	//status 子资源会忽略掉对 spec 的变更。这与其它更新操作的发生冲突的风险更小， 而且实现了权限分离。
 	if err := r.Status().Update(ctx, &cronJob); err != nil {
 		log.Error(err, "unable to update CronJob status")
 		return ctrl.Result{}, err
 	}
+
+	// 3、保留历史版本，清理过旧job
+
 
 	return ctrl.Result{}, nil
 }
