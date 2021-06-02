@@ -21,6 +21,8 @@ import (
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,9 +39,9 @@ var (
 )
 
 func init() {
-	_ = clientgoscheme.AddToScheme(scheme)
-
-	_ = batchv1.AddToScheme(scheme)
+	//_ = clientgoscheme.AddToScheme(scheme) // 原本operator-sdk生成的，缺少错误处理，替换成以下的写法
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(batchv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -75,6 +77,20 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	// TODO 为coronJob类型设置 webhook。只需要将他们添加到 manager。因为想分开运行 webhook，
+	// TODO 而不是在本地测试控制器时运行它们，后续会将它们配置到环境变量中。
+	//if err = (&batchv1.CronJob{}).SetupWebhookWithManager(mgr); err != nil {
+	//	setupLog.Error(err, "unable to create webhook", "webhook", "CronJob")
+	//	os.Exit(1)
+	//}
+
+	//if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	//	if err = (&batchv1.CronJob{}).SetupWebhookWithManager(mgr); err != nil {
+	//		setupLog.Error(err, "unable to create webhook", "webhook", "Captain")
+	//		os.Exit(1)
+	//	}
+	//}
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
