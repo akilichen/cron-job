@@ -1,0 +1,14 @@
+##  遇到如下bug的解决方案
+
+### 1、高版本k8s的kubebuilder无法兼容出现
+```
+The CustomResourceDefinition "cronjobs.batch.tutorial.kubebuilder.io" is invalid:
+* spec.validation.openAPIV3Schema.properties[spec].properties[jobTemplate].properties[spec].properties[template].properties[spec].properties[containers].items.properties[ports].items.properties[protocol].default: Required value: this property is in x-kubernetes-list-map-keys, so it must have a default or be a required property
+* spec.validation.openAPIV3Schema.properties[spec].properties[jobTemplate].properties[spec].properties[template].properties[spec].properties[initContainers].items.properties[ports].items.properties[protocol].default: Required value: this property is in x-kubernetes-list-map-keys, so it must have a default or be a required property
+
+```
+
+解决方法： https://github.com/kubernetes-sigs/kubebuilder/issues/1466
+
+
+### 2、

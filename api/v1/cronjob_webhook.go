@@ -17,7 +17,12 @@ limitations under the License.
 package v1
 
 import (
+	"github.com/robfig/cron"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	validationutils "k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -42,6 +47,7 @@ var _ webhook.Defaulter = &CronJob{}
 func (r *CronJob) Default() {
 	cronjoblog.Info("default", "name", r.Name)
 
+	// 验证逻辑写于下
 	if r.Spec.ConcurrencyPolicy == "" {
 		r.Spec.ConcurrencyPolicy = AllowConcurrent
 	}
@@ -59,8 +65,6 @@ func (r *CronJob) Default() {
 		r.Spec.FailedJobHistoryLimit = new(int32)
 		*r.Spec.FailedJobHistoryLimit = 1
 	}
-
-	// TODO(user): fill in your defaulting logic.
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
@@ -72,22 +76,61 @@ var _ webhook.Validator = &CronJob{}
 func (r *CronJob) ValidateCreate() error {
 	cronjoblog.Info("validate create", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object creation.
-	return nil
+	return r.ValidateCronJob()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *CronJob) ValidateUpdate(old runtime.Object) error {
 	cronjoblog.Info("validate update", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object update.
-	return nil
+	return r.ValidateCronJob()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *CronJob) ValidateDelete() error {
 	cronjoblog.Info("validate delete", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object deletion.
+	return nil
+}
+
+func (r *CronJob) ValidateCronJob() error {
+	var allErrs field.ErrorList
+	if err := r.validateCronJonSpec(); err != nil {
+		allErrs = append(allErrs, err)
+	}
+	if err := r.validateCronJobName(); err != nil {
+		allErrs = append(allErrs, err)
+	}
+	if len(allErrs) == 0 {
+		return nil
+	}
+
+	return apierrors.NewInvalid(
+		schema.GroupKind{Group: "batch.tutorial.kubebuilder.io", Kind: "CronJob"},
+		r.Name,
+		allErrs,
+	)
+}
+
+func (r *CronJob) validateCronJonSpec() *field.Error {
+	// kubernetes API machinery 的字段助手会帮助我们很好地返回结构化的验证错误。
+	return validateScheduleFormat(r.Spec.Schedule, field.NewPath("spec").Child("schedule"))
+}
+
+func validateScheduleFormat(schedule string, fldpath *field.Path) *field.Error {
+	if _, err := cron.ParseStandard(schedule); err != nil {
+		return field.Invalid(fldpath, schedule, err.Error())
+	}
+	return nil
+}
+
+func (r *CronJob) validateCronJobName() *field.Error {
+	if len(r.ObjectMeta.Name) > validationutils.DNS1035LabelMaxLength-11 {
+		// job 的名字长度像所有 Kubernetes 对象一样是是 63 字符(必须适合 DNS 子域，因为DNS子域不应该超过63，总长度应该不超过255)。
+		// 在创建 job 的时候，cronjob 的控制器会添加一个 11 字符的后缀(`-$TIMESTAMP`)。
+		// job 的名字长度限制在 63 字符。因此 cronjob 的名字的长度一定小于等于 63-11=52 。
+		// 如果这里我们没有进行验证，后面当job创建的时候就会失败。
+		return field.Invalid(field.NewPath("metadata").Child("name"), r.Name, "must be no more than 52 chars")
+	}
 	return nil
 }
