@@ -27,7 +27,7 @@ rules:
 - apiGroups:
   - batch.tutorial.kubebuilder.io
   resources:
-  - cronjobs
+  - cronjob
   verbs:
   - create
   - delete
@@ -39,7 +39,7 @@ rules:
 - apiGroups:
   - batch.tutorial.kubebuilder.io
   resources:
-  - cronjobs/status
+  - cronjob/status
   verbs:
   - get
   - patch

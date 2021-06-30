@@ -61,6 +61,11 @@ var (
 	scheduledTimeAnnotation = "batch.tutorial.kubebuilder.io/scheduled-at"
 )
 
+var (
+	jobOwnerKey = ".metadata.controller"
+	apiGVStr    = batchv1.GroupVersion.String()
+)
+
 func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
 	log := r.Log.WithValues("cronjob", req.NamespacedName)
@@ -79,6 +84,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// 获取所有有效的job，并使用client.MatchingFields给查询到的数据加上索引
 	// 用于加快后续的遍历有效job时的速率
 	var childJobs kbatch.JobList
+	//var childJobs batchv1.CronJobList
 	if err := r.List(ctx, &childJobs, client.InNamespace(req.Namespace), client.MatchingFields{jobOwnerKey: req.Name}); err != nil {
 		log.Error(err, "unable to  list child jobs")
 		return ctrl.Result{}, nil
@@ -89,6 +95,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	var failedJobs []*kbatch.Job
 	var mostRecentTime *time.Time // 最近一次运行状态
 
+	// 判断一个任务是否完成
 	isJobFinished := func(job *kbatch.Job) (bool, kbatch.JobConditionType) {
 		for _, c := range job.Status.Conditions {
 			if (c.Type == kbatch.JobFailed || c.Type == kbatch.JobComplete) && c.Status == corev1.ConditionTrue {
@@ -334,11 +341,6 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	//return ctrl.Result{}, nil
 	return scheduleResult, nil // 返回调度结果
 }
-
-var (
-	jobOwnerKey = ".metadata.controller"
-	apiGVStr    = batchv1.GroupVersion.String()
-)
 
 func (r *CronJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// 给定一个真实时钟
