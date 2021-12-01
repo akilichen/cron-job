@@ -35,13 +35,13 @@ import (
 
 var (
 	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	setupLog = ctrl.Log.WithName("setup") // 日志常量
 )
 
 func init() {
 	//_ = clientgoscheme.AddToScheme(scheme) // 原本operator-sdk生成的，缺少错误处理，替换成以下的写法
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(batchv1.AddToScheme(scheme))
+	utilruntime.Must(batchv1.AddToScheme(scheme)) // 向scheme注册入GVK
 	_ = batchv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
@@ -56,7 +56,7 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
-
+	// 初始化manager
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
@@ -69,6 +69,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 将调谐器注入manager中
 	if err = (&controllers.CronJobReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("CronJob"),
@@ -77,6 +78,8 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "CronJob")
 		os.Exit(1)
 	}
+
+	// 配置webhook
 	if err = (&batchv1.CronJob{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "CronJob")
 		os.Exit(1)
@@ -89,14 +92,13 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "CronJob")
 		os.Exit(1)
 	}
-
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		if err = (&batchv1.CronJob{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Captain")
 			os.Exit(1)
 		}
 	}
-
+	// 最后启动manager
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
