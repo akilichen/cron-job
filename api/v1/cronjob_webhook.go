@@ -47,7 +47,7 @@ var _ webhook.Defaulter = &CronJob{}
 func (r *CronJob) Default() {
 	cronjoblog.Info("default", "name", r.Name)
 
-	// 验证逻辑写于下
+	// TODO 验证逻辑写于下
 	if r.Spec.ConcurrencyPolicy == "" {
 		r.Spec.ConcurrencyPolicy = AllowConcurrent
 	}

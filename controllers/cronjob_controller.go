@@ -76,8 +76,8 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	var cronJob batchv1.CronJob
 	if err := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
 		log.Error(err, "unable to fetch CronJob")
-		//忽略掉 not-found 错误，它们不能通过重新排队修复（要等待新的通知）
-		//在删除一个不存在的对象时，可能会报这个错误。
+		// 忽略掉 not-found 错误，它们不能通过重新排队修复（要等待新的通知）
+		// 在删除一个不存在的对象时，可能会报这个错误。
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -93,7 +93,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	var activeJobs []*kbatch.Job
 	var successfulJobs []*kbatch.Job
 	var failedJobs []*kbatch.Job
-	var mostRecentTime *time.Time // 最近一次运行状态
+	var mostRecentTime *time.Time // 最近一次运行时间
 
 	// 判断一个任务是否完成
 	isJobFinished := func(job *kbatch.Job) (bool, kbatch.JobConditionType) {
@@ -165,7 +165,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	log.V(1).Info("job count", "active jobs", len(activeJobs), "successful jobs", len(successfulJobs), "failed jobs", len(failedJobs))
 
 	// 使用收集到日期信息来更新 CRD 状态。和之前类似，通过 client 来完成操作。 针对 status 这一子资源，我们可以使用Status部分的Update方法。
-	//status 子资源会忽略掉对 spec 的变更。这与其它更新操作的发生冲突的风险更小， 而且实现了权限分离。
+	// status 子资源会忽略掉对 spec 的变更。这与其它更新操作的发生冲突的风险更小， 而且实现了权限分离。
 	if err := r.Status().Update(ctx, &cronJob); err != nil {
 		log.Error(err, "unable to update CronJob status")
 		return ctrl.Result{}, err
@@ -243,6 +243,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			return time.Time{}, sched.Next(now), nil
 		}
 
+		// 检查任务错误时间的次数，大于100则不再调用重新入列此任务
 		start := 0
 		for t := sched.Next(earliestTime); !t.After(now); t = sched.Next(t) {
 			lastMissed = t
@@ -287,7 +288,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if cronJob.Spec.ConcurrencyPolicy == batchv1.ReplaceConcurrent {
 		for _, job := range activeJobs {
 			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != client.IgnoreNotFound(err) {
-				log.Error(err, "unabel to delete active job", "job", job)
+				log.Error(err, "unable to delete active job", "job", job)
 				return ctrl.Result{}, err
 			}
 		}
@@ -297,7 +298,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// 然后在注解中设置执行时间，这样我们可以在每次的调谐中获取起作为“上一次执行时间”
 	// 最后，还需要设置 owner reference字段。当我们删除 CronJob 时，Kubernetes 垃圾收集器会根据
 	// 这个字段对应的job进行对应垃圾回收。同时，当某个job状态发生变更（创建，删除，完成）时，
-	//controller-runtime 可以根据这个字段识别出要对那个 CronJob 进行调谐。
+	// controller-runtime 可以根据这个字段识别出要对那个 CronJob 进行调谐。
 	constructJobForCronJob := func(cronJob *batchv1.CronJob, scheduledTime time.Time) (*kbatch.Job, error) {
 		// job 名称带上执行时间以确保唯一性，避免排定执行时间的 job 创建两次
 		name := fmt.Sprintf("%s-%d", cronJob.Name, scheduledTime.Unix())
@@ -310,13 +311,17 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			},
 			Spec: *cronJob.Spec.JobTemplate.Spec.DeepCopy(),
 		}
+		// 复制预定的crd-yaml中的所有annotation
 		for k, v := range cronJob.Spec.JobTemplate.Annotations {
 			job.Annotations[k] = v
 		}
+		// 加上新的注释，便于上面的，我们写过的逻辑中查到最近一次执行的时间
 		job.Annotations[scheduledTimeAnnotation] = scheduledTime.Format(time.RFC3339)
+		// 复制标签，以方便诸如类似污点特性的校验调度等的操作
 		for k, v := range cronJob.Spec.JobTemplate.Labels {
 			job.Labels[k] = v
 		}
+		// 将cronjob的index写到owner reference中，作用见上面注释
 		if err := ctrl.SetControllerReference(cronJob, job, r.Scheme); err != nil {
 			return nil, err
 		}
